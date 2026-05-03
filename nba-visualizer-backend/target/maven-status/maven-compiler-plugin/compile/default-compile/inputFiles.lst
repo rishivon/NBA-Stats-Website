@@ -1,3 +1,12 @@
 /Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/NbaVisualizerBackendApplication.java
 /Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/StandingsController.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/client/nbaStats/NbaStatsClient.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/client/nbaStats/StandingResponse.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/client/nbaStats/StandingsResponseWrapper.java
 /Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/config/CorsConfig.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/config/RestTemplateConfig.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/controller/TeamController.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/model/Standing.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/model/Team.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/service/StandingsService.java
+/Users/rishivontivillu/Desktop/NBA-Stats-Website/NBA-Stats-Website/nba-visualizer-backend/src/main/java/com/example/nbavisualizer/service/TeamService.java
