@@ -45,7 +45,7 @@ public class NbaStatsClient {
     }
 
     public List<StandingResponse> fetchStandings(int season) {
-        String proxyUrl = "http://localhost:8000/standings";
+        String proxyUrl = "http://localhost:8000/standings?season=" + season;
         log.info("Fetching standings from NBA Stats Proxy: {}", proxyUrl);
 
         HttpHeaders headers = new HttpHeaders();

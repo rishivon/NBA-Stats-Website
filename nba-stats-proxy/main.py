@@ -61,7 +61,7 @@ def sanitize_data(data):
 
 
 @app.get("/standings")
-async def get_standings():
+async def get_standings(season: int | None = None):
     """
     Fetch NBA standings data from nba_api.
     
@@ -70,12 +70,20 @@ async def get_standings():
     """
     try:
         add_random_delay()
-        logger.info("Fetching standings from NBA API")
-        
+        season_label = None
+        if season is not None:
+            season_label = f"{season - 1}-{str(season)[-2:]}"
+            logger.info(f"Fetching standings for season {season_label} from NBA API")
+        else:
+            logger.info("Fetching current standings from NBA API")
+
         # Fetch standings using nba_api with custom headers
-        standings = leaguestandingsv3.LeagueStandingsV3(
+        standings_request = leaguestandingsv3.LeagueStandingsV3(
+            season=season_label,
             headers=HEADERS
-        ).get_data_frames()[0]
+        ) if season_label else leaguestandingsv3.LeagueStandingsV3(headers=HEADERS)
+
+        standings = standings_request.get_data_frames()[0]
         
         # Convert DataFrame to list of dicts for JSON serialization
         standings_list = standings.to_dict(orient='records')

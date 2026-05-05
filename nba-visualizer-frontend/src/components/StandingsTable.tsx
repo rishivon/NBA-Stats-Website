@@ -17,10 +17,17 @@ interface StandingsTableProps {
   standings: Standing[];
   loading: boolean;
   error: string;
+  season: number;
+  onSeasonChange: (season: number) => void;
 }
 
-const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, error }) => {
+const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, error, season, onSeasonChange }) => {
   const [activeConference, setActiveConference] = useState<"East" | "West">("East");
+  const seasons = [2026, 2025, 2024, 2023];
+
+  const getTeamLogoUrl = (teamAbbr: string) => {
+    return `/logos/${teamAbbr.toLowerCase()}.svg`;
+  };
 
   const filteredStandings = useMemo(
     () => standings.filter((standing) => standing.conference === activeConference),
@@ -39,30 +46,44 @@ const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, err
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-            2025-26 {activeConference} Conference
-          </p>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Regular season standings from BallDontLie.
-          </p>
+          <p className="text-2xl font-semibold text-white">NBA Standings</p>
         </div>
-        <div className="inline-flex rounded-full bg-zinc-200 p-1 dark:bg-zinc-800">
-          {(["East", "West"] as const).map((conference) => (
-            <button
-              key={conference}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                activeConference === conference
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "text-zinc-600 hover:bg-zinc-300 dark:text-zinc-300 dark:hover:bg-zinc-700"
-              }`}
-              onClick={() => setActiveConference(conference)}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-col gap-2">
+            <span className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Season</span>
+            <select
+              value={season}
+              onChange={(e) => onSeasonChange(Number(e.target.value))}
+              className="px-4 py-2 rounded-lg bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-white text-sm font-medium border border-zinc-300 dark:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {conference}
-            </button>
-          ))}
+              {seasons.map((s) => (
+                <option key={s} value={s}>
+                  {s - 1}-{s.toString().slice(-2)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Conference</span>
+            <div className="inline-flex rounded-full bg-zinc-200 p-1 dark:bg-zinc-800">
+              {(["East", "West"] as const).map((conference) => (
+                <button
+                  key={conference}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                    activeConference === conference
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "text-zinc-600 hover:bg-zinc-300 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  }`}
+                  onClick={() => setActiveConference(conference)}
+                >
+                  {conference}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -86,7 +107,17 @@ const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, err
               {filteredStandings.map((standing) => (
                 <tr key={standing.teamId} className="border-t border-zinc-200 dark:border-zinc-800">
                   <td className="px-4 py-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    {standing.teamName}
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={getTeamLogoUrl(standing.teamAbbr)}
+                        alt={standing.teamName}
+                        className="w-6 h-6"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      {standing.teamName}
+                    </div>
                   </td>
                   <td className="px-4 py-4 text-right text-sm text-zinc-700 dark:text-zinc-300">
                     {standing.wins}

@@ -4,13 +4,24 @@ import React, { useEffect, useState } from "react";
 import StandingsTable, { Standing } from "@/components/StandingsTable";
 import SectionCard from "@/components/SectionCard";
 
+const getCurrentSeason = (): number => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  return month >= 10 ? year + 1 : year;
+};
+
 const HomePage: React.FC = () => {
   const [standings, setStandings] = useState<Standing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [season, setSeason] = useState<number>(() => getCurrentSeason());
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/standings")
+    setLoading(true);
+    setError("");
+
+    fetch(`http://localhost:8080/api/standings?season=${season}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch standings");
         return res.json();
@@ -18,7 +29,7 @@ const HomePage: React.FC = () => {
       .then((data) => setStandings(data))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [season]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50">
@@ -32,9 +43,15 @@ const HomePage: React.FC = () => {
         </header>
 
         <div className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
-          <SectionCard title="NBA Standings" subtitle="Regular season standings from BallDontLie.">
-            <StandingsTable standings={standings} loading={loading} error={error} />
-          </SectionCard>
+          <div className="space-y-4">
+            <StandingsTable
+              standings={standings}
+              loading={loading}
+              error={error}
+              season={season}
+              onSeasonChange={setSeason}
+            />
+          </div>
 
           <div className="grid gap-6">
             <SectionCard title="Trending Performance" subtitle="Top players and hot streaks.">
