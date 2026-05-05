@@ -45,3 +45,9 @@ coverage/
 # Misc
 .DS_Store
 Thumbs.db
+
+# Python virtual environment
+venv/
+
+# Maven target directory
+target/
