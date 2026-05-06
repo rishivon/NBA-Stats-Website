@@ -20,6 +20,15 @@ public class StandingResponse {
     @JsonProperty("Conference")
     private String conference;
 
+    @JsonProperty("Division")
+    private String division;
+
+    @JsonProperty("ConferenceRecord")
+    private String conferenceRecord;
+
+    @JsonProperty("ConferenceRank")
+    private Integer conferenceRank;
+
     @JsonProperty("WINS")
     private Integer wins;
 

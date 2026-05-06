@@ -88,12 +88,18 @@ Health check endpoint for monitoring service status.
    pip install -r requirements.txt
    ```
 
-3. **Start the Proxy:**
+3. **Run Redis (optional but recommended):**
+   If you have Docker: `docker run -p 6379:6379 redis:7-alpine`
+
+4. **Start the Proxy:**
+   Set environment variables as needed and run:
    ```bash
+   export REDIS_URL=redis://localhost:6379
+   export DB_PATH=./nba_stats.db
    python main.py
    ```
 
-The proxy will start on `http://localhost:8000`
+The proxy will start on `http://localhost:8000` and will use Redis for caching (if available) and SQLite for persistent storage.
 
 ## Dependencies
 

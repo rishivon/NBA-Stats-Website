@@ -15,16 +15,15 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "teams")
-public class Team {
+@Table(name = "players")
+public class Player {
     @Id
     private Integer id;
-    private String abbreviation;
-    private String city;
-    private String conference;
-    private String division;
-    private String fullName;
-    private String name;
-    private String logoPath;
+    private Integer teamId;
+    private String firstName;
+    private String lastName;
+    private String position;
+    private String height;
+    private String weight;
     private Instant lastMetadataUpdate;
 }

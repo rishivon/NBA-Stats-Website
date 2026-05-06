@@ -3,6 +3,7 @@ package com.example.nbavisualizer.client.nbaStats;
 import com.example.nbavisualizer.model.Team;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
@@ -20,8 +21,11 @@ public class NbaStatsClient {
 
     private final RestTemplate restTemplate;
 
+    @Value("${nba.proxy.base-url:http://localhost:8000}")
+    private String proxyBaseUrl;
+
     public List<Team> fetchTeams() {
-        String proxyUrl = "http://localhost:8000/teams";
+        String proxyUrl = proxyBaseUrl + "/teams";
         log.info("Fetching teams from NBA Stats Proxy: {}", proxyUrl);
 
         HttpHeaders headers = new HttpHeaders();
@@ -45,7 +49,7 @@ public class NbaStatsClient {
     }
 
     public List<StandingResponse> fetchStandings(int season) {
-        String proxyUrl = "http://localhost:8000/standings?season=" + season;
+        String proxyUrl = proxyBaseUrl + "/standings?season=" + season;
         log.info("Fetching standings from NBA Stats Proxy: {}", proxyUrl);
 
         HttpHeaders headers = new HttpHeaders();
