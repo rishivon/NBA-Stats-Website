@@ -11,7 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from nba_api.stats.endpoints import leaguestandingsv3, shotchartdetail
 from nba_api.stats.static import teams as nba_static_teams
 import logging
-import redis.asyncio as aioredis
+
+try:
+    import redis.asyncio as aioredis
+except ModuleNotFoundError:
+    aioredis = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +80,11 @@ async def get_standings_from_db(season_label: str):
 
 async def init_redis():
     global redis_client
+    if aioredis is None:
+        logger.warning("redis package is not installed; continuing without Redis cache")
+        redis_client = None
+        return
+
     try:
         redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
         # test connection
