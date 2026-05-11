@@ -133,6 +133,59 @@ cd nba-visualizer-frontend
 npm run dev
 ```
 
+## Shutdown
+
+If you started everything with `./start-services.sh`, press `Ctrl+C` in that terminal. That stops the Python proxy, Spring Boot backend, and Next.js frontend that the script launched.
+
+If you started services manually, press `Ctrl+C` in each service terminal:
+
+- Python proxy terminal running `python main.py`
+- Backend terminal running `mvn spring-boot:run`
+- Frontend terminal running `npm run dev`
+
+Stopping the app services does not stop Docker containers. Stop local Postgres and Redis separately:
+
+```bash
+docker compose -f docker-compose.local.yml down
+```
+
+That stops and removes the containers but keeps the Docker volume data. To delete the local Postgres data volume too:
+
+```bash
+docker compose -f docker-compose.local.yml down -v
+```
+
+If a service is still running after closing terminals, find the process by port:
+
+```bash
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+lsof -nP -iTCP:8080 -sTCP:LISTEN
+```
+
+Then stop the process with its PID:
+
+```bash
+kill <PID>
+```
+
+If services were started in detached `screen` sessions, list and stop them:
+
+```bash
+screen -ls
+screen -S nba-proxy -X quit
+screen -S nba-backend -X quit
+```
+
+Confirm nothing is still listening:
+
+```bash
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+lsof -nP -iTCP:8080 -sTCP:LISTEN
+docker compose -f docker-compose.local.yml ps
+```
+
 ## Optional Redis
 
 Redis is used as the first cache layer for standings and team metadata. If Redis is not running, the backend and proxy continue with database-backed behavior.
