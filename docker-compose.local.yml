@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nba-visualizer-postgres
+    environment:
+      POSTGRES_DB: nba_visualizer
+      POSTGRES_USER: nba_visualizer
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - nba_visualizer_postgres_data:/var/lib/postgresql/data
+      - ./nba-visualizer-backend/src/main/resources/db/supabase_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nba_visualizer -d nba_visualizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: nba-visualizer-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nba_visualizer_postgres_data:

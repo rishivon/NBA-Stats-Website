@@ -10,6 +10,13 @@ NC='\033[0m' # No Color
 
 WORKSPACE_DIR="$(pwd)"
 
+if [ -f "$WORKSPACE_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$WORKSPACE_DIR/.env"
+  set +a
+fi
+
 echo -e "${BLUE}Starting NBA Stats Website...${NC}\n"
 
 # Start Python Proxy (Port 8000)

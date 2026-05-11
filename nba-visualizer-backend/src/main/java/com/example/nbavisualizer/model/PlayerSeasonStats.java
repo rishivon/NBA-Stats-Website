@@ -25,6 +25,6 @@ public class PlayerSeasonStats {
     private Double stl;
     private Double blk;
     private Double fgPct;
-    private Double threePPct;
+    private Double threePointPct;
     private Instant lastUpdated;
 }

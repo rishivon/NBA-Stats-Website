@@ -47,6 +47,6 @@ CREATE TABLE IF NOT EXISTS player_season_stats (
     stl DOUBLE PRECISION,
     blk DOUBLE PRECISION,
     fg_pct DOUBLE PRECISION,
-    three_p_pct DOUBLE PRECISION,
+    three_point_pct DOUBLE PRECISION,
     last_updated TIMESTAMPTZ
 );
