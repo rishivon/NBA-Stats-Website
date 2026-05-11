@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import StandingsTable, { Standing } from "@/components/StandingsTable";
 import SectionCard from "@/components/SectionCard";
+import { API_BASE_URL } from "@/lib/api";
 
 const getCurrentSeason = (): number => {
   const now = new Date();
@@ -18,17 +19,29 @@ const HomePage: React.FC = () => {
   const [season, setSeason] = useState<number>(() => getCurrentSeason());
 
   useEffect(() => {
-    setLoading(true);
-    setError("");
+    let active = true;
 
-    fetch(`http://localhost:8080/api/standings?season=${season}`)
-      .then((res) => {
+    const loadStandings = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/standings?season=${season}`);
         if (!res.ok) throw new Error("Failed to fetch standings");
-        return res.json();
-      })
-      .then((data) => setStandings(data))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+        const data = await res.json();
+        if (active) setStandings(data);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Failed to fetch standings");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void loadStandings();
+
+    return () => {
+      active = false;
+    };
   }, [season]);
 
   return (

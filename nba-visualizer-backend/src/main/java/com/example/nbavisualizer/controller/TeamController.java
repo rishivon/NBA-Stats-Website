@@ -1,6 +1,8 @@
 package com.example.nbavisualizer.controller;
 
 import com.example.nbavisualizer.model.Team;
+import com.example.nbavisualizer.model.dashboard.TeamDashboard;
+import com.example.nbavisualizer.service.TeamDashboardService;
 import com.example.nbavisualizer.service.TeamService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +18,7 @@ import java.util.List;
 public class TeamController {
 
     private final TeamService teamService;
+    private final TeamDashboardService teamDashboardService;
 
     @GetMapping
     public List<Team> getTeams() {
@@ -25,5 +28,10 @@ public class TeamController {
     @GetMapping("/{id}")
     public Team getTeam(@PathVariable Integer id) {
         return teamService.getTeam(id);
+    }
+
+    @GetMapping("/{id}/dashboard")
+    public TeamDashboard getTeamDashboard(@PathVariable Integer id) {
+        return teamDashboardService.getTeamDashboard(id);
     }
 }

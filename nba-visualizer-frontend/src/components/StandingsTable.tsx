@@ -1,3 +1,4 @@
+import Link from "next/link";
 import React, { useMemo, useState } from "react";
 
 export interface Standing {
@@ -113,7 +114,10 @@ const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, err
               {filteredStandings.map((standing) => (
                 <tr key={standing.teamId} className="border-t border-zinc-200 dark:border-zinc-800">
                   <td className="px-4 py-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    <div className="flex items-center gap-3">
+                    <Link
+                      href={`/teams/${standing.teamId}`}
+                      className="flex items-center gap-3 rounded-lg transition hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-950"
+                    >
                       <img
                         src={getTeamLogoUrl(standing.teamAbbr)}
                         alt={standing.teamName}
@@ -123,7 +127,7 @@ const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, err
                         }}
                       />
                       {standing.teamName}
-                    </div>
+                    </Link>
                   </td>
                   <td className="px-4 py-4 text-right text-sm text-zinc-700 dark:text-zinc-300">
                     {standing.wins}
