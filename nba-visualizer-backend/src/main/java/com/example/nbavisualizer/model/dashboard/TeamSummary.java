@@ -16,6 +16,7 @@ public record TeamSummary(
         Integer conferenceRank,
         String conferenceRankDisplay,
         String recordDisplay,
-        String summary
+        String summary,
+        Integer selectedSeason
 ) {
 }

@@ -115,7 +115,7 @@ const StandingsTable: React.FC<StandingsTableProps> = ({ standings, loading, err
                 <tr key={standing.teamId} className="border-t border-zinc-200 dark:border-zinc-800">
                   <td className="px-4 py-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
                     <Link
-                      href={`/teams/${standing.teamId}`}
+                      href={`/teams/${standing.teamId}?season=${season}`}
                       className="flex items-center gap-3 rounded-lg transition hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-950"
                     >
                       <img

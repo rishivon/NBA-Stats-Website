@@ -14,6 +14,7 @@ public class SyncService {
 
     private final StandingsService standingsService;
     private final TeamService teamService;
+    private final TeamDashboardService teamDashboardService;
     private final NbaRefreshProperties refreshProperties;
 
     @Scheduled(fixedDelayString = "${nba.refresh.standings-fixed-delay-ms:1200000}", initialDelayString = "${nba.refresh.initial-delay-ms:30000}")
@@ -25,6 +26,16 @@ public class SyncService {
     @Scheduled(fixedDelayString = "${nba.refresh.metadata-fixed-delay-ms:86400000}", initialDelayString = "${nba.refresh.initial-delay-ms:30000}")
     public void refreshTeamMetadata() {
         withJitter("teams", teamService::refreshTeams);
+    }
+
+    @Scheduled(fixedDelayString = "${nba.refresh.depth-chart-fixed-delay-ms:86400000}", initialDelayString = "${nba.refresh.initial-delay-ms:30000}")
+    public void refreshDepthCharts() {
+        withJitter("depth charts", teamDashboardService::refreshDepthChartsForAllTeams);
+    }
+
+    @Scheduled(fixedDelayString = "${nba.refresh.injuries-fixed-delay-ms:14400000}", initialDelayString = "${nba.refresh.initial-delay-ms:30000}")
+    public void refreshInjuries() {
+        withJitter("injuries", teamDashboardService::refreshInjuriesForAllTeams);
     }
 
     private void withJitter(String label, Runnable refresh) {

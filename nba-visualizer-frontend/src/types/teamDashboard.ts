@@ -15,6 +15,7 @@ export interface TeamSummary {
   conferenceRankDisplay: string;
   recordDisplay: string;
   summary: string;
+  selectedSeason: number;
 }
 
 export interface TeamStatCard {
@@ -39,16 +40,19 @@ export interface TeamLeader {
 
 export interface TeamScheduleGame {
   date: string;
+  gameDate: string;
   opponentAbbreviation: string;
   opponentName: string;
   location: "@" | "vs";
   result: string;
   resultType: "win" | "loss" | "upcoming";
   completed: boolean;
+  record: string;
 }
 
 export interface TeamInjuryReportItem {
   playerName: string;
+  position: string | null;
   injury: string;
   expectedReturn: string;
   status: string;
@@ -60,4 +64,29 @@ export interface TeamDashboard {
   leaders: TeamLeader[];
   schedule: TeamScheduleGame[];
   injuries: TeamInjuryReportItem[];
+  roster: TeamRosterPlayer[];
+  depthChart: TeamDepthChartGroup[];
+  availableSeasons: number[];
+}
+
+export interface TeamRosterPlayer {
+  playerId: number;
+  fullName: string;
+  position: string;
+  jersey: string;
+  height: string;
+  weight: string;
+  salary: string | null;
+}
+
+export interface TeamDepthChartPlayer {
+  playerId: number;
+  playerName: string;
+  depthOrder: number;
+  status: string | null;
+}
+
+export interface TeamDepthChartGroup {
+  position: string;
+  players: TeamDepthChartPlayer[];
 }

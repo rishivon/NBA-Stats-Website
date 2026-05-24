@@ -1,11 +1,19 @@
 import Link from "next/link";
 import { TeamDashboard, TeamInjuryReportItem, TeamLeader, TeamScheduleGame, TeamStatCard } from "@/types/teamDashboard";
+import SeasonSelect from "./SeasonSelect";
 
 interface TeamDashboardPageProps {
   dashboard: TeamDashboard;
 }
 
-const tabs = ["Overview", "Stats", "Schedule", "History"];
+const tabs = ["Overview", "Stats", "Roster", "History"];
+
+const tabHref = (teamId: number, season: number, tab: string) => {
+  const query = `?season=${season}`;
+  if (tab === "Stats") return `/teams/${teamId}/stats${query}`;
+  if (tab === "Roster") return `/teams/${teamId}/roster${query}`;
+  return `/teams/${teamId}${query}`;
+};
 
 const statTone = (stat: TeamStatCard) => {
   if (stat.highlighted) return "text-blue-400";
@@ -27,18 +35,22 @@ const TeamDashboardPage: React.FC<TeamDashboardPageProps> = ({ dashboard }) => {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-10">
         <nav className="mb-10 flex items-center gap-7 overflow-x-auto border-b border-zinc-800 pb-1 text-sm font-bold uppercase tracking-[0.22em]">
           {tabs.map((tab, index) => (
-            <span
+            <Link
               key={tab}
+              href={tabHref(summary.id, summary.selectedSeason, tab)}
               className={`shrink-0 pb-3 ${index === 0 ? "border-b-2 border-blue-400 text-blue-400" : "text-zinc-500"}`}
             >
               {tab}
-            </span>
+            </Link>
           ))}
         </nav>
 
-        <Link href="/" className="mb-8 inline-flex text-sm font-semibold text-zinc-500 transition hover:text-blue-400">
-          Back to standings
-        </Link>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <Link href="/" className="inline-flex text-sm font-semibold text-zinc-500 transition hover:text-blue-400">
+            Back to standings
+          </Link>
+          <SeasonSelect seasons={dashboard.availableSeasons} selectedSeason={summary.selectedSeason} />
+        </div>
 
         <section className="grid gap-8 lg:grid-cols-[1fr_360px]">
           <div className="min-w-0">
@@ -82,7 +94,7 @@ const TeamDashboardPage: React.FC<TeamDashboardPageProps> = ({ dashboard }) => {
 
             <section>
               <h2 className="mb-6 text-xs font-black uppercase tracking-[0.28em] text-zinc-600">Team Leaders</h2>
-              <div className="flex gap-4 overflow-x-auto pb-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {leaders.map((leader) => (
                   <LeaderCard key={leader.statKey} leader={leader} />
                 ))}
@@ -91,7 +103,7 @@ const TeamDashboardPage: React.FC<TeamDashboardPageProps> = ({ dashboard }) => {
           </div>
 
           <aside className="space-y-6">
-            <SchedulePanel schedule={schedule} />
+            <SchedulePanel teamId={summary.id} season={summary.selectedSeason} schedule={schedule} />
             <InjuryPanel injuries={injuries} />
           </aside>
         </section>
@@ -101,13 +113,13 @@ const TeamDashboardPage: React.FC<TeamDashboardPageProps> = ({ dashboard }) => {
 };
 
 const LeaderCard: React.FC<{ leader: TeamLeader }> = ({ leader }) => (
-  <article className="flex w-72 shrink-0 items-center gap-5 rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-800/40 to-zinc-950 p-6 transition hover:border-blue-500/30">
+  <article className="grid min-h-40 grid-cols-[64px_1fr] items-center gap-5 rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-800/40 to-zinc-950 p-6 transition hover:border-blue-500/30">
     <div className="flex size-16 shrink-0 items-center justify-center rounded-full border-2 border-blue-500/20 bg-zinc-100 text-lg font-black text-zinc-400">
       {leader.initials}
     </div>
     <div className="min-w-0">
       <p className="text-xs font-black uppercase tracking-widest text-blue-400">{leader.statLabel}</p>
-      <p className="mt-1 line-clamp-2 text-xl font-bold leading-tight text-white">{leader.playerName}</p>
+      <p className="mt-1 text-xl font-bold leading-tight text-white">{leader.playerName}</p>
       <p className="mt-3 text-3xl font-black italic leading-none text-white">
         {leader.formattedValue}
         <span className="ml-2 text-xs font-bold uppercase not-italic text-zinc-500">{leader.unit}</span>
@@ -116,21 +128,21 @@ const LeaderCard: React.FC<{ leader: TeamLeader }> = ({ leader }) => (
   </article>
 );
 
-const SchedulePanel: React.FC<{ schedule: TeamScheduleGame[] }> = ({ schedule }) => (
+const SchedulePanel: React.FC<{ teamId: number; season: number; schedule: TeamScheduleGame[] }> = ({ teamId, season, schedule }) => (
   <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40">
     <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-800/40 px-5 py-4">
       <h2 className="text-xs font-black uppercase tracking-[0.24em] text-zinc-400">Schedule & Results</h2>
-      <span className="text-xs font-bold uppercase text-blue-400">Full Schedule</span>
+      <Link href={`/teams/${teamId}/schedule?season=${season}`} className="text-xs font-bold uppercase text-blue-400">Full Schedule</Link>
     </div>
     <div className="divide-y divide-zinc-800/60">
       {schedule.map((game) => (
         <div key={`${game.date}-${game.opponentAbbreviation}`} className="grid grid-cols-[80px_1fr_auto] items-center gap-3 px-5 py-4 text-sm">
-          <span className="font-semibold text-zinc-500">{game.date}</span>
-          <span className="min-w-0 font-bold text-zinc-100">
-            <span className="mr-2 text-zinc-600">{game.location}</span>
-            {game.opponentAbbreviation}
+          <span className="font-bold text-blue-400">{game.date}</span>
+          <span className="min-w-0 font-black uppercase text-zinc-100">
+            <span className="mr-3 text-zinc-100">{game.location}</span>
+            <span className="text-blue-400">{game.opponentAbbreviation}</span>
           </span>
-          <span className={`text-right font-black ${resultTone(game.resultType)}`}>{game.result}</span>
+          <span className={`text-right font-black ${resultTone(game.resultType)}`}>{game.result || "TBD"}</span>
         </div>
       ))}
     </div>
@@ -150,16 +162,18 @@ const InjuryPanel: React.FC<{ injuries: TeamInjuryReportItem[] }> = ({ injuries 
           <thead className="border-b border-zinc-800/60 text-zinc-600">
             <tr>
               <th className="px-5 py-3 uppercase">Player</th>
+              <th className="px-5 py-3 uppercase">Position</th>
               <th className="px-5 py-3 uppercase">Injury</th>
-              <th className="px-5 py-3 text-right uppercase">Return</th>
+              <th className="px-5 py-3 text-right uppercase">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/40">
             {injuries.map((injury) => (
               <tr key={`${injury.playerName}-${injury.injury}`}>
                 <td className="px-5 py-4 font-bold text-white">{injury.playerName}</td>
+                <td className="px-5 py-4 font-semibold text-zinc-500">{injury.position || "-"}</td>
                 <td className="px-5 py-4 text-zinc-400">{injury.injury}</td>
-                <td className="px-5 py-4 text-right font-semibold text-orange-400">{injury.expectedReturn}</td>
+                <td className="px-5 py-4 text-right font-semibold text-orange-400">{injury.status || injury.expectedReturn}</td>
               </tr>
             ))}
           </tbody>

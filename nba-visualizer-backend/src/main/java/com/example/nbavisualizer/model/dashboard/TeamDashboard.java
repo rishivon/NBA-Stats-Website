@@ -7,6 +7,9 @@ public record TeamDashboard(
         List<TeamStatCard> stats,
         List<TeamLeader> leaders,
         List<TeamScheduleGame> schedule,
-        List<TeamInjuryReportItem> injuries
+        List<TeamInjuryReportItem> injuries,
+        List<TeamRosterPlayerItem> roster,
+        List<TeamDepthChartGroup> depthChart,
+        List<Integer> availableSeasons
 ) {
 }

@@ -1,284 +1,565 @@
 package com.example.nbavisualizer.service;
 
+import com.example.nbavisualizer.client.nbaStats.NbaStatsClient;
+import com.example.nbavisualizer.client.nbaStats.team.TeamDepthChartResponse;
+import com.example.nbavisualizer.client.nbaStats.team.TeamGameLogResponse;
+import com.example.nbavisualizer.client.nbaStats.team.TeamInjuryResponse;
+import com.example.nbavisualizer.client.nbaStats.team.TeamPlayerStatsResponse;
+import com.example.nbavisualizer.client.nbaStats.team.TeamRosterPlayerResponse;
+import com.example.nbavisualizer.client.nbaStats.team.TeamSeasonStatsResponse;
 import com.example.nbavisualizer.model.Standing;
 import com.example.nbavisualizer.model.Team;
+import com.example.nbavisualizer.model.TeamDepthChart;
+import com.example.nbavisualizer.model.TeamGame;
+import com.example.nbavisualizer.model.TeamInjury;
+import com.example.nbavisualizer.model.TeamPlayerStats;
+import com.example.nbavisualizer.model.TeamRosterPlayer;
+import com.example.nbavisualizer.model.TeamSeasonStats;
 import com.example.nbavisualizer.model.dashboard.TeamDashboard;
+import com.example.nbavisualizer.model.dashboard.TeamDepthChartGroup;
+import com.example.nbavisualizer.model.dashboard.TeamDepthChartPlayer;
 import com.example.nbavisualizer.model.dashboard.TeamInjuryReportItem;
 import com.example.nbavisualizer.model.dashboard.TeamLeader;
+import com.example.nbavisualizer.model.dashboard.TeamRosterPlayerItem;
 import com.example.nbavisualizer.model.dashboard.TeamScheduleGame;
 import com.example.nbavisualizer.model.dashboard.TeamStatCard;
 import com.example.nbavisualizer.model.dashboard.TeamSummary;
 import com.example.nbavisualizer.repository.StandingRepository;
+import com.example.nbavisualizer.repository.TeamDepthChartRepository;
+import com.example.nbavisualizer.repository.TeamGameRepository;
+import com.example.nbavisualizer.repository.TeamInjuryRepository;
+import com.example.nbavisualizer.repository.TeamPlayerStatsRepository;
+import com.example.nbavisualizer.repository.TeamRosterPlayerRepository;
+import com.example.nbavisualizer.repository.TeamSeasonStatsRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.text.DecimalFormat;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TeamDashboardService {
 
     private static final DecimalFormat ONE_DECIMAL = new DecimalFormat("0.0");
-    private static final DateTimeFormatter GAME_DATE = DateTimeFormatter.ofPattern("EEE M/dd");
+    private static final DateTimeFormatter GAME_DATE = DateTimeFormatter.ofPattern("EEE M/dd", Locale.US);
+    private static final DateTimeFormatter NBA_GAME_DATE = new DateTimeFormatterBuilder()
+            .parseCaseInsensitive()
+            .appendPattern("MMM dd, yyyy")
+            .toFormatter(Locale.US);
+    private static final List<String> DEPTH_POSITIONS = List.of("PG", "SG", "SF", "PF", "C");
+    private static final int MIN_LEAGUE_TEAM_COUNT = 20;
 
+    private final NbaStatsClient nbaStatsClient;
     private final TeamService teamService;
     private final StandingRepository standingRepository;
+    private final TeamSeasonStatsRepository teamSeasonStatsRepository;
+    private final TeamRosterPlayerRepository teamRosterPlayerRepository;
+    private final TeamPlayerStatsRepository teamPlayerStatsRepository;
+    private final TeamGameRepository teamGameRepository;
+    private final TeamDepthChartRepository teamDepthChartRepository;
+    private final TeamInjuryRepository teamInjuryRepository;
 
-    public TeamDashboard getTeamDashboard(Integer teamId) {
+    @Transactional
+    public TeamDashboard getTeamDashboard(Integer teamId, Integer season) {
+        int selectedSeason = normalizeSeason(season);
         Team team = teamService.getTeam(teamId);
-        Standing standing = standingRepository.findFirstByTeamIdOrderBySeasonDesc(teamId)
-                .orElseGet(() -> fallbackStanding(team));
-        List<Standing> seasonStandings = standingRepository.findBySeason(standing.getSeason());
-        List<TeamMetric> metrics = metricsFor(seasonStandings.isEmpty() ? List.of(standing) : seasonStandings);
-        TeamMetric metric = metrics.stream()
-                .filter(item -> Objects.equals(item.teamId(), teamId))
+        Standing standing = standingRepository.findBySeasonAndTeamId(selectedSeason, teamId)
+                .orElseGet(() -> standingRepository.findFirstByTeamIdOrderBySeasonDesc(teamId).orElseGet(() -> fallbackStanding(team, selectedSeason)));
+
+        List<TeamSeasonStats> allStats = allStatsForRanking(selectedSeason);
+        TeamSeasonStats stats = allStats.stream()
+                .filter(item -> Objects.equals(item.getTeamId(), teamId))
                 .findFirst()
-                .orElseGet(() -> metricFor(standing));
+                .orElseGet(() -> getOrRefreshTeamStats(teamId, selectedSeason));
+        List<TeamPlayerStats> playerStats = getOrRefreshPlayerStats(teamId, selectedSeason);
+        List<TeamRosterPlayer> roster = getOrRefreshRoster(teamId, selectedSeason);
+        List<TeamGame> games = getOrRefreshGames(teamId, selectedSeason);
+        List<TeamDepthChart> depthChart = getOrBuildDepthChart(teamId, selectedSeason, roster);
+        List<TeamInjury> injuries = getOrRefreshInjuries(teamId);
 
         return new TeamDashboard(
-                toSummary(team, standing, metric),
-                toStatCards(metric, metrics),
-                toLeaders(team, metric),
-                toSchedule(team, standing, seasonStandings),
-                toInjuries(team)
+                toSummary(team, standing, stats, selectedSeason),
+                toStatCards(stats, allStats),
+                toLeaders(playerStats, roster),
+                toSchedule(games, true),
+                injuries.stream().map(this::toInjuryItem).toList(),
+                roster.stream().map(this::toRosterItem).toList(),
+                toDepthChartGroups(depthChart),
+                availableSeasons()
         );
     }
 
-    private TeamSummary toSummary(Team team, Standing standing, TeamMetric metric) {
-        String conferenceName = conferenceName(standing.getConference());
-        int rank = conferenceRank(standing);
-        String record = nullSafe(standing.getWins()) + "-" + nullSafe(standing.getLosses());
-        String summary = "%s are %s in the %s and profile as a %s team, pairing %.1f projected points with %.1f assists per game."
-                .formatted(
-                        team.getFullName(),
-                        ordinal(rank),
-                        conferenceName,
-                        identityFor(metric),
-                        metric.points(),
-                        metric.assists()
-                );
-
-        return new TeamSummary(
-                team.getId(),
-                team.getFullName(),
-                team.getAbbreviation(),
-                team.getCity(),
-                team.getName(),
-                standing.getConference(),
-                standing.getDivision(),
-                team.getLogoPath(),
-                standing.getSeason(),
-                standing.getWins(),
-                standing.getLosses(),
-                standing.getWinPercentage(),
-                rank,
-                ordinal(rank) + " in " + conferenceName,
-                record,
-                summary
-        );
+    @Transactional
+    public List<TeamScheduleGame> getTeamSchedule(Integer teamId, Integer season) {
+        int selectedSeason = normalizeSeason(season);
+        return toSchedule(getOrRefreshGames(teamId, selectedSeason), false);
     }
 
-    private List<TeamStatCard> toStatCards(TeamMetric metric, List<TeamMetric> allMetrics) {
-        return List.of(
-                statCard("points", "Points", metric.points(), rank(allMetrics, TeamMetric::points, metric.teamId()), true),
-                statCard("rebounds", "Rebounds", metric.rebounds(), rank(allMetrics, TeamMetric::rebounds, metric.teamId()), false),
-                statCard("assists", "Assists", metric.assists(), rank(allMetrics, TeamMetric::assists, metric.teamId()), false),
-                statCard("steals", "Steals", metric.steals(), rank(allMetrics, TeamMetric::steals, metric.teamId()), true),
-                statCard("blocks", "Blocks", metric.blocks(), rank(allMetrics, TeamMetric::blocks, metric.teamId()), true)
-        );
+    @Transactional
+    public TeamDashboard getTeamRosterDashboard(Integer teamId, Integer season) {
+        return getTeamDashboard(teamId, season);
     }
 
-    private TeamStatCard statCard(String key, String label, double value, int rank, boolean highlighted) {
-        return new TeamStatCard(key, label, value, ONE_DECIMAL.format(value), rank, ordinal(rank) + " in NBA", highlighted && rank <= 10);
+    @Transactional
+    public void refreshInjuriesForAllTeams() {
+        teamService.getTeams().forEach(team -> {
+            try {
+                refreshInjuries(team.getId());
+            } catch (Exception ex) {
+                log.warn("Failed to refresh injuries for {}: {}", team.getFullName(), ex.getMessage());
+            }
+        });
     }
 
-    private List<TeamLeader> toLeaders(Team team, TeamMetric metric) {
-        List<String> names = leaderNames(team);
-        return List.of(
-                leader("points", "Points", names.get(0), metric.points() * 0.26, "PPG"),
-                leader("rebounds", "Rebounds", names.get(1), metric.rebounds() * 0.24, "RPG"),
-                leader("assists", "Assists", names.get(2), metric.assists() * 0.31, "APG"),
-                leader("steals", "Steals", names.get(3), metric.steals() * 0.29, "SPG"),
-                leader("blocks", "Blocks", names.get(4), metric.blocks() * 0.32, "BPG")
-        );
+    @Transactional
+    public void refreshDepthChartsForAllTeams() {
+        int season = normalizeSeason(null);
+        teamService.getTeams().forEach(team -> {
+            try {
+                List<TeamRosterPlayer> roster = refreshRoster(team.getId(), season);
+                refreshDepthChart(team.getId(), season, roster);
+            } catch (Exception ex) {
+                log.warn("Failed to refresh depth chart for {}: {}", team.getFullName(), ex.getMessage());
+            }
+        });
     }
 
-    private TeamLeader leader(String key, String label, String playerName, double value, String unit) {
-        return new TeamLeader(key, label, playerName, initials(playerName), value, ONE_DECIMAL.format(value), unit);
+    private TeamSeasonStats getOrRefreshTeamStats(Integer teamId, Integer season) {
+        return teamSeasonStatsRepository.findByTeamIdAndSeason(teamId, season)
+                .orElseGet(() -> refreshTeamStats(teamId, season));
     }
 
-    private List<TeamScheduleGame> toSchedule(Team team, Standing standing, List<Standing> seasonStandings) {
-        List<Standing> opponents = seasonStandings.stream()
-                .filter(item -> !Objects.equals(item.getTeamId(), team.getId()))
-                .sorted(Comparator.comparing(Standing::getWins, Comparator.nullsLast(Integer::compareTo)).reversed())
-                .limit(4)
+    private List<TeamInjury> getOrRefreshInjuries(Integer teamId) {
+        List<TeamInjury> injuries = teamInjuryRepository.findByTeamIdOrderByPlayerNameAsc(teamId);
+        return injuries.isEmpty() ? refreshInjuries(teamId) : injuries;
+    }
+
+    private List<TeamInjury> refreshInjuries(Integer teamId) {
+        List<TeamInjury> injuries = nbaStatsClient.fetchTeamInjuries(teamId).stream()
+                .filter(item -> item.getPlayerName() != null && !item.getPlayerName().isBlank())
+                .map(item -> TeamInjury.builder()
+                        .teamId(teamId)
+                        .playerName(item.getPlayerName())
+                        .position(item.getPosition())
+                        .injury(item.getInjury())
+                        .expectedReturn(item.getExpectedReturn())
+                        .status(item.getStatus())
+                        .lastUpdated(Instant.now())
+                        .build())
                 .toList();
-
-        LocalDate today = LocalDate.now();
-        return java.util.stream.IntStream.range(0, opponents.size())
-                .mapToObj(index -> {
-                    Standing opponent = opponents.get(index);
-                    boolean completed = index < 2;
-                    boolean home = index % 2 == 1;
-                    int teamScore = 104 + nullSafe(standing.getWins()) % 24 + index * 2;
-                    int opponentScore = 98 + nullSafe(opponent.getWins()) % 22 + index;
-                    String result = completed
-                            ? (teamScore >= opponentScore ? "W " : "L ") + teamScore + " - " + opponentScore
-                            : (home ? "7:30 PM" : "8:00 PM");
-                    return new TeamScheduleGame(
-                            GAME_DATE.format(today.plusDays((long) index * 2 - 4)),
-                            opponent.getTeamAbbr(),
-                            opponent.getTeamName(),
-                            home ? "vs" : "@",
-                            result,
-                            completed ? (teamScore >= opponentScore ? "win" : "loss") : "upcoming",
-                            completed
-                    );
-                })
-                .toList();
+        teamInjuryRepository.deleteByTeamId(teamId);
+        return teamInjuryRepository.saveAll(injuries);
     }
 
-    private List<TeamInjuryReportItem> toInjuries(Team team) {
-        List<String> names = leaderNames(team);
-        if (team.getId() % 5 == 0) {
+    private TeamSeasonStats refreshTeamStats(Integer teamId, Integer season) {
+        List<TeamSeasonStats> leagueStats = refreshLeagueTeamStats(season);
+        Optional<TeamSeasonStats> leagueTeamStats = leagueStats.stream()
+                .filter(item -> Objects.equals(item.getTeamId(), teamId))
+                .findFirst();
+        if (leagueTeamStats.isPresent()) {
+            return leagueTeamStats.get();
+        }
+
+        TeamSeasonStatsResponse response = nbaStatsClient.fetchTeamStats(teamId, season);
+        if (response == null) {
+            return syntheticTeamStats(teamId, season);
+        }
+        return teamSeasonStatsRepository.save(toTeamSeasonStats(response, teamId, season));
+    }
+
+    private List<TeamSeasonStats> refreshLeagueTeamStats(Integer season) {
+        try {
+            List<TeamSeasonStats> stats = nbaStatsClient.fetchLeagueTeamStats(season).stream()
+                    .filter(item -> item.getTeamId() != null)
+                    .map(item -> toTeamSeasonStats(item, item.getTeamId(), season))
+                    .toList();
+            return stats.isEmpty() ? List.of() : teamSeasonStatsRepository.saveAll(stats);
+        } catch (Exception ex) {
+            log.warn("Failed to refresh league team stats for {}: {}", season, ex.getMessage());
             return List.of();
         }
-
-        return List.of(
-                new TeamInjuryReportItem(names.get(1), "Lower Body", "Day-to-Day", "questionable"),
-                new TeamInjuryReportItem(names.get(4), "Ankle", "Next Week", "out")
-        );
     }
 
-    private List<TeamMetric> metricsFor(List<Standing> standings) {
-        return standings.stream().map(this::metricFor).toList();
-    }
-
-    private TeamMetric metricFor(Standing standing) {
-        int wins = nullSafe(standing.getWins());
-        int losses = nullSafe(standing.getLosses());
-        int total = Math.max(1, wins + losses);
-        double winPct = wins / (double) total;
-        double paceBoost = ("West".equals(standing.getConference()) ? 1.5 : 0.0) + (standing.getTeamId() % 7) * 0.45;
-        double points = 106.0 + winPct * 18.0 + paceBoost;
-        double rebounds = 39.0 + (1.0 - winPct) * 6.0 + (standing.getTeamId() % 5) * 0.6;
-        double assists = 22.0 + winPct * 8.0 + (standing.getTeamId() % 4) * 0.5;
-        double steals = 6.2 + winPct * 2.8 + (standing.getTeamId() % 3) * 0.35;
-        double blocks = 4.0 + winPct * 2.4 + (standing.getTeamId() % 4) * 0.4;
-        return new TeamMetric(standing.getTeamId(), points, rebounds, assists, steals, blocks);
-    }
-
-    private int rank(List<TeamMetric> metrics, MetricValue value, Integer teamId) {
-        List<TeamMetric> sorted = metrics.stream()
-                .sorted(Comparator.comparing(value::get).reversed())
-                .toList();
-        for (int i = 0; i < sorted.size(); i++) {
-            if (Objects.equals(sorted.get(i).teamId(), teamId)) {
-                return i + 1;
-            }
-        }
-        return sorted.size();
-    }
-
-    private Standing fallbackStanding(Team team) {
-        return Standing.builder()
-                .season(currentSeason())
-                .teamId(team.getId())
-                .teamName(team.getFullName())
-                .teamAbbr(team.getName())
-                .conference(team.getConference())
-                .division(team.getDivision())
-                .wins(0)
-                .losses(0)
-                .winPercentage(0.0)
-                .conferenceRank(0)
-                .lastTenWins(0)
-                .lastTenLosses(0)
-                .winStreak(0)
+    private TeamSeasonStats toTeamSeasonStats(TeamSeasonStatsResponse response, Integer teamId, Integer season) {
+        return TeamSeasonStats.builder()
+                .teamId(teamId)
+                .season(season)
+                .pts(response.getPts())
+                .reb(response.getReb())
+                .ast(response.getAst())
+                .stl(response.getStl())
+                .blk(response.getBlk())
+                .plusMinus(response.getPlusMinus())
+                .ptsRank(response.getPtsRank())
+                .rebRank(response.getRebRank())
+                .astRank(response.getAstRank())
+                .stlRank(response.getStlRank())
+                .blkRank(response.getBlkRank())
+                .plusMinusRank(response.getPlusMinusRank())
+                .lastUpdated(Instant.now())
                 .build();
     }
 
-    private int conferenceRank(Standing standing) {
-        if (standing.getConferenceRank() != null && standing.getConferenceRank() > 0) {
-            return standing.getConferenceRank();
+    private List<TeamPlayerStats> getOrRefreshPlayerStats(Integer teamId, Integer season) {
+        List<TeamPlayerStats> stats = teamPlayerStatsRepository.findByTeamIdAndSeason(teamId, season);
+        return stats.isEmpty() ? refreshPlayerStats(teamId, season) : stats;
+    }
+
+    private List<TeamPlayerStats> refreshPlayerStats(Integer teamId, Integer season) {
+        List<TeamPlayerStats> stats = nbaStatsClient.fetchTeamPlayerStats(teamId, season).stream()
+                .filter(item -> item.getPlayerId() != null)
+                .map(item -> TeamPlayerStats.builder()
+                        .teamId(teamId)
+                        .season(season)
+                        .playerId(item.getPlayerId())
+                        .playerName(item.getPlayerName())
+                        .pts(item.getPts())
+                        .reb(item.getReb())
+                        .ast(item.getAst())
+                        .stl(item.getStl())
+                        .blk(item.getBlk())
+                        .plusMinus(item.getPlusMinus())
+                        .lastUpdated(Instant.now())
+                        .build())
+                .toList();
+        return teamPlayerStatsRepository.saveAll(stats);
+    }
+
+    private List<TeamRosterPlayer> getOrRefreshRoster(Integer teamId, Integer season) {
+        List<TeamRosterPlayer> roster = teamRosterPlayerRepository.findByTeamIdAndSeasonOrderByPositionAscFullNameAsc(teamId, season);
+        boolean missingSalaryData = !roster.isEmpty() && roster.stream()
+                .noneMatch(player -> player.getSalary() != null && !player.getSalary().isBlank());
+        return roster.isEmpty() || missingSalaryData ? refreshRoster(teamId, season) : roster;
+    }
+
+    private List<TeamRosterPlayer> refreshRoster(Integer teamId, Integer season) {
+        List<TeamRosterPlayer> roster = nbaStatsClient.fetchTeamRoster(teamId, season).stream()
+                .filter(item -> item.getPlayerId() != null)
+                .map(item -> TeamRosterPlayer.builder()
+                        .teamId(teamId)
+                        .season(season)
+                        .playerId(item.getPlayerId())
+                        .fullName(item.getFullName())
+                        .firstName(item.getFirstName())
+                        .lastName(item.getLastName())
+                        .position(item.getPosition())
+                        .jersey(item.getJersey())
+                        .height(item.getHeight())
+                        .weight(item.getWeight())
+                        .salary(item.getSalary())
+                        .lastUpdated(Instant.now())
+                        .build())
+                .toList();
+        return teamRosterPlayerRepository.saveAll(roster);
+    }
+
+    private List<TeamGame> getOrRefreshGames(Integer teamId, Integer season) {
+        List<TeamGame> games = teamGameRepository.findByTeamIdAndSeasonOrderByGameDateDesc(teamId, season);
+        boolean missingScores = games.stream()
+                .anyMatch(game -> game.isCompleted() && (game.getTeamScore() == null || game.getOpponentScore() == null));
+        return games.isEmpty() || missingScores ? refreshGames(teamId, season) : games;
+    }
+
+    private List<TeamGame> refreshGames(Integer teamId, Integer season) {
+        List<TeamGame> games = nbaStatsClient.fetchTeamGameLog(teamId, season).stream()
+                .filter(item -> item.getGameId() != null)
+                .map(item -> toTeamGame(teamId, season, item))
+                .toList();
+        return teamGameRepository.saveAll(games);
+    }
+
+    private List<TeamDepthChart> getOrBuildDepthChart(Integer teamId, Integer season, List<TeamRosterPlayer> roster) {
+        List<TeamDepthChart> depthChart = teamDepthChartRepository.findByTeamIdAndSeasonOrderByPositionAscDepthOrderAsc(teamId, season);
+        if (!depthChart.isEmpty() && hasUsableDepthChart(depthChart)) {
+            return depthChart;
         }
+        return refreshDepthChart(teamId, season, roster);
+    }
+
+    private List<TeamDepthChart> refreshDepthChart(Integer teamId, Integer season, List<TeamRosterPlayer> roster) {
+        List<TeamDepthChart> scraped = nbaStatsClient.fetchTeamDepthChart(teamId).stream()
+                .filter(item -> item.getPosition() != null && item.getDepthOrder() != null && item.getPlayerName() != null)
+                .map(item -> TeamDepthChart.builder()
+                        .teamId(teamId)
+                        .season(season)
+                        .position(item.getPosition())
+                        .depthOrder(item.getDepthOrder())
+                        .playerId(findPlayerId(item, roster))
+                        .playerName(item.getPlayerName())
+                        .status(item.getStatus())
+                        .lastUpdated(Instant.now())
+                        .build())
+                .toList();
+        List<TeamDepthChart> nextDepthChart = scraped.isEmpty() ? buildDepthChart(teamId, season, roster) : scraped;
+        teamDepthChartRepository.deleteByTeamIdAndSeason(teamId, season);
+        return teamDepthChartRepository.saveAll(nextDepthChart);
+    }
+
+    private List<TeamDepthChart> buildDepthChart(Integer teamId, Integer season, List<TeamRosterPlayer> roster) {
+        Map<String, Integer> counters = new LinkedHashMap<>();
+        DEPTH_POSITIONS.forEach(position -> counters.put(position, 0));
+        return roster.stream()
+                .map(player -> normalizePosition(player.getPosition()))
+                .distinct()
+                .flatMap(position -> roster.stream()
+                        .filter(player -> normalizePosition(player.getPosition()).equals(position))
+                        .sorted(Comparator.comparing(TeamRosterPlayer::getFullName, Comparator.nullsLast(String::compareTo)))
+                        .limit(3)
+                        .map(player -> TeamDepthChart.builder()
+                                .teamId(teamId)
+                                .season(season)
+                                .position(position)
+                                .depthOrder(counters.merge(position, 1, Integer::sum))
+                                .playerId(player.getPlayerId())
+                                .playerName(player.getFullName())
+                                .status(null)
+                                .lastUpdated(Instant.now())
+                                .build()))
+                .toList();
+    }
+
+    private Integer findPlayerId(TeamDepthChartResponse item, List<TeamRosterPlayer> roster) {
+        String target = item.getPlayerName().replace(".", "").toLowerCase(Locale.US);
+        return roster.stream()
+                .filter(player -> player.getFullName() != null)
+                .filter(player -> {
+                    String fullName = player.getFullName().replace(".", "").toLowerCase(Locale.US);
+                    return fullName.equals(target) || fullName.contains(target) || target.contains(fullName);
+                })
+                .map(TeamRosterPlayer::getPlayerId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private TeamSummary toSummary(Team team, Standing standing, TeamSeasonStats stats, Integer season) {
+        String conferenceName = conferenceName(standing.getConference());
+        int rank = conferenceRank(standing);
+        String record = nullSafe(standing.getWins()) + "-" + nullSafe(standing.getLosses());
+        String summary = "%s are %s in the %s with %.1f points, %.1f assists, and %.1f rebounds per game in %s."
+                .formatted(team.getFullName(), ordinal(rank), conferenceName, value(stats.getPts()), value(stats.getAst()), value(stats.getReb()), seasonLabel(season));
+
+        return new TeamSummary(team.getId(), team.getFullName(), team.getAbbreviation(), team.getCity(), team.getName(),
+                standing.getConference(), standing.getDivision(), team.getLogoPath(), standing.getSeason(), standing.getWins(),
+                standing.getLosses(), standing.getWinPercentage(), rank, ordinal(rank) + " in " + conferenceName, record, summary, season);
+    }
+
+    private List<TeamStatCard> toStatCards(TeamSeasonStats stats, List<TeamSeasonStats> allStats) {
+        return List.of(
+                statCard("points", "Points", stats.getPts(), rankOrCompute(stats.getPtsRank(), allStats, TeamSeasonStats::getPts, stats.getTeamId())),
+                statCard("rebounds", "Rebounds", stats.getReb(), rankOrCompute(stats.getRebRank(), allStats, TeamSeasonStats::getReb, stats.getTeamId())),
+                statCard("assists", "Assists", stats.getAst(), rankOrCompute(stats.getAstRank(), allStats, TeamSeasonStats::getAst, stats.getTeamId())),
+                statCard("steals", "Steals", stats.getStl(), rankOrCompute(stats.getStlRank(), allStats, TeamSeasonStats::getStl, stats.getTeamId())),
+                statCard("blocks", "Blocks", stats.getBlk(), rankOrCompute(stats.getBlkRank(), allStats, TeamSeasonStats::getBlk, stats.getTeamId()))
+        );
+    }
+
+    private TeamStatCard statCard(String key, String label, Double value, int rank) {
+        double safeValue = value(value);
+        return new TeamStatCard(key, label, safeValue, ONE_DECIMAL.format(safeValue), rank, ordinal(rank) + " in NBA", rank <= 10);
+    }
+
+    private List<TeamLeader> toLeaders(List<TeamPlayerStats> playerStats, List<TeamRosterPlayer> roster) {
+        if (playerStats.isEmpty()) {
+            return List.of();
+        }
+        return java.util.stream.Stream.of(
+                        leader("points", "Points", playerStats, TeamPlayerStats::getPts, "PPG"),
+                        leader("rebounds", "Rebounds", playerStats, TeamPlayerStats::getReb, "RPG"),
+                        leader("assists", "Assists", playerStats, TeamPlayerStats::getAst, "APG"),
+                        leader("steals", "Steals", playerStats, TeamPlayerStats::getStl, "SPG"),
+                        leader("blocks", "Blocks", playerStats, TeamPlayerStats::getBlk, "BPG"),
+                        leader("plusMinus", "+/-", playerStats, TeamPlayerStats::getPlusMinus, "+/-")
+                )
+                .filter(Objects::nonNull)
+                .map(leader -> enrichLeaderName(leader, roster))
+                .toList();
+    }
+
+    private TeamLeader leader(String key, String label, List<TeamPlayerStats> stats, Function<TeamPlayerStats, Double> getter, String unit) {
+        return stats.stream()
+                .filter(player -> getter.apply(player) != null)
+                .max(Comparator.comparing(getter))
+                .map(player -> new TeamLeader(key, label, player.getPlayerName(), initials(player.getPlayerName()), getter.apply(player), ONE_DECIMAL.format(getter.apply(player)), unit))
+                .orElse(null);
+    }
+
+    private TeamLeader enrichLeaderName(TeamLeader leader, List<TeamRosterPlayer> roster) {
+        if (leader.playerName() != null && !leader.playerName().isBlank()) {
+            return leader;
+        }
+        return roster.stream().findFirst()
+                .map(player -> new TeamLeader(leader.statKey(), leader.statLabel(), player.getFullName(), initials(player.getFullName()), leader.value(), leader.formattedValue(), leader.unit()))
+                .orElse(leader);
+    }
+
+    private List<TeamScheduleGame> toSchedule(List<TeamGame> games, boolean compact) {
+        return games.stream()
+                .sorted(Comparator.comparing(TeamGame::getGameDate, Comparator.nullsLast(LocalDate::compareTo)).reversed())
+                .limit(compact ? 5 : 82)
+                .map(game -> new TeamScheduleGame(GAME_DATE.format(game.getGameDate()), game.getGameDate().toString(), game.getOpponentAbbreviation(), game.getOpponentName(),
+                        game.getLocation(), resultDisplay(game), game.getResultType(), game.isCompleted(), game.getRecord()))
+                .toList();
+    }
+
+    private List<TeamDepthChartGroup> toDepthChartGroups(List<TeamDepthChart> depthChart) {
+        Map<String, List<TeamDepthChartPlayer>> groups = new LinkedHashMap<>();
+        DEPTH_POSITIONS.forEach(position -> groups.put(position, new ArrayList<>()));
+        depthChart.stream()
+                .sorted(Comparator.comparing((TeamDepthChart item) -> depthPositionOrder(item.getPosition())).thenComparing(TeamDepthChart::getDepthOrder))
+                .forEach(item -> groups.computeIfAbsent(item.getPosition(), ignored -> new java.util.ArrayList<>())
+                        .add(new TeamDepthChartPlayer(item.getPlayerId(), item.getPlayerName(), item.getDepthOrder(), item.getStatus())));
+        return groups.entrySet().stream()
+                .filter(entry -> !entry.getValue().isEmpty())
+                .map(entry -> new TeamDepthChartGroup(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private TeamInjuryReportItem toInjuryItem(TeamInjury injury) {
+        return new TeamInjuryReportItem(injury.getPlayerName(), injury.getPosition(), injury.getInjury(), injury.getExpectedReturn(), injury.getStatus());
+    }
+
+    private TeamRosterPlayerItem toRosterItem(TeamRosterPlayer player) {
+        return new TeamRosterPlayerItem(player.getPlayerId(), player.getFullName(), player.getPosition(), player.getJersey(), player.getHeight(), player.getWeight(), player.getSalary());
+    }
+
+    private TeamGame toTeamGame(Integer teamId, Integer season, TeamGameLogResponse response) {
+        String matchup = response.getMatchup();
+        String opponent = parseOpponent(matchup);
+        Integer teamScore = response.getPoints();
+        Integer opponentScore = response.getPlusMinus() == null || teamScore == null ? null : teamScore - (int) Math.round(response.getPlusMinus());
+        String resultType = "W".equals(response.getWinLoss()) ? "win" : "loss";
+        return TeamGame.builder()
+                .teamId(teamId)
+                .season(season)
+                .gameId(response.getGameId())
+                .gameDate(LocalDate.parse(response.getGameDate(), NBA_GAME_DATE))
+                .matchup(matchup)
+                .opponentAbbreviation(opponent)
+                .opponentName(opponent)
+                .location(matchup != null && matchup.contains("@") ? "@" : "vs")
+                .resultType(resultType)
+                .teamScore(teamScore)
+                .opponentScore(opponentScore)
+                .record(nullSafe(response.getWins()) + "-" + nullSafe(response.getLosses()))
+                .completed(true)
+                .lastUpdated(Instant.now())
+                .build();
+    }
+
+    private TeamSeasonStats syntheticTeamStats(Integer teamId, Integer season) {
+        Standing standing = standingRepository.findBySeasonAndTeamId(season, teamId).orElse(null);
+        int wins = standing == null ? 41 : nullSafe(standing.getWins());
+        int losses = standing == null ? 41 : nullSafe(standing.getLosses());
+        double pct = wins / (double) Math.max(1, wins + losses);
+        return teamSeasonStatsRepository.save(TeamSeasonStats.builder()
+                .teamId(teamId).season(season).pts(106 + pct * 18).reb(39 + (1 - pct) * 6).ast(22 + pct * 8)
+                .stl(6.2 + pct * 2.8).blk(4.0 + pct * 2.4).plusMinus((pct - .5) * 12).lastUpdated(Instant.now()).build());
+    }
+
+    private List<TeamSeasonStats> allStatsForRanking(Integer season) {
+        List<TeamSeasonStats> stats = teamSeasonStatsRepository.findBySeason(season);
+        if (stats.size() >= MIN_LEAGUE_TEAM_COUNT) {
+            return stats;
+        }
+        List<TeamSeasonStats> refreshed = refreshLeagueTeamStats(season);
+        if (!refreshed.isEmpty()) {
+            return refreshed;
+        }
+        if (!stats.isEmpty()) {
+            return stats;
+        }
+        return standingRepository.findBySeason(season).stream().map(item -> syntheticTeamStats(item.getTeamId(), season)).toList();
+    }
+
+    private Standing fallbackStanding(Team team, Integer season) {
+        return Standing.builder().season(season).teamId(team.getId()).teamName(team.getFullName()).conference(team.getConference())
+                .division(team.getDivision()).wins(0).losses(0).winPercentage(0.0).conferenceRank(0).build();
+    }
+
+    private int conferenceRank(Standing standing) {
+        if (standing.getConferenceRank() != null && standing.getConferenceRank() > 0) return standing.getConferenceRank();
         List<Standing> conference = standingRepository.findBySeason(standing.getSeason()).stream()
                 .filter(item -> Objects.equals(item.getConference(), standing.getConference()))
                 .sorted(Comparator.comparing(Standing::getWins, Comparator.nullsLast(Integer::compareTo)).reversed())
                 .toList();
         for (int i = 0; i < conference.size(); i++) {
-            if (Objects.equals(conference.get(i).getTeamId(), standing.getTeamId())) {
-                return i + 1;
-            }
+            if (Objects.equals(conference.get(i).getTeamId(), standing.getTeamId())) return i + 1;
         }
         return 0;
     }
 
-    private List<String> leaderNames(Team team) {
-        Map<String, List<String>> leaders = Map.ofEntries(
-                Map.entry("Hawks", List.of("Trae Young", "Jalen Johnson", "Trae Young", "Dyson Daniels", "Onyeka Okongwu")),
-                Map.entry("Celtics", List.of("Jayson Tatum", "Jaylen Brown", "Derrick White", "Jrue Holiday", "Kristaps Porzingis")),
-                Map.entry("Nets", List.of("Cam Thomas", "Nicolas Claxton", "Ben Simmons", "Dorian Finney-Smith", "Nicolas Claxton")),
-                Map.entry("Hornets", List.of("LaMelo Ball", "Mark Williams", "LaMelo Ball", "Brandon Miller", "Mark Williams")),
-                Map.entry("Bulls", List.of("Zach LaVine", "Nikola Vucevic", "Josh Giddey", "Ayo Dosunmu", "Patrick Williams")),
-                Map.entry("Cavaliers", List.of("Donovan Mitchell", "Jarrett Allen", "Darius Garland", "Evan Mobley", "Evan Mobley")),
-                Map.entry("Mavericks", List.of("Luka Doncic", "Dereck Lively II", "Kyrie Irving", "P.J. Washington", "Daniel Gafford")),
-                Map.entry("Nuggets", List.of("Nikola Jokic", "Aaron Gordon", "Jamal Murray", "Kentavious Caldwell-Pope", "Michael Porter Jr.")),
-                Map.entry("Pistons", List.of("Cade Cunningham", "Jalen Duren", "Cade Cunningham", "Ausar Thompson", "Jalen Duren")),
-                Map.entry("Warriors", List.of("Stephen Curry", "Draymond Green", "Brandin Podziemski", "Gary Payton II", "Trayce Jackson-Davis")),
-                Map.entry("Rockets", List.of("Jalen Green", "Alperen Sengun", "Fred VanVleet", "Amen Thompson", "Jabari Smith Jr.")),
-                Map.entry("Pacers", List.of("Pascal Siakam", "Myles Turner", "Tyrese Haliburton", "Andrew Nembhard", "Myles Turner")),
-                Map.entry("Clippers", List.of("Kawhi Leonard", "Ivica Zubac", "James Harden", "Terance Mann", "Ivica Zubac")),
-                Map.entry("Lakers", List.of("LeBron James", "Anthony Davis", "Austin Reaves", "Jarred Vanderbilt", "Jaxson Hayes")),
-                Map.entry("Grizzlies", List.of("Ja Morant", "Jaren Jackson Jr.", "Ja Morant", "Marcus Smart", "Jaren Jackson Jr.")),
-                Map.entry("Heat", List.of("Jimmy Butler", "Bam Adebayo", "Tyler Herro", "Haywood Highsmith", "Kevin Love")),
-                Map.entry("Bucks", List.of("Giannis Antetokounmpo", "Bobby Portis", "Damian Lillard", "Andre Jackson Jr.", "Brook Lopez")),
-                Map.entry("Timberwolves", List.of("Anthony Edwards", "Rudy Gobert", "Mike Conley", "Jaden McDaniels", "Naz Reid")),
-                Map.entry("Pelicans", List.of("Zion Williamson", "Jonas Valanciunas", "CJ McCollum", "Herb Jones", "Yves Missi")),
-                Map.entry("Knicks", List.of("Jalen Brunson", "Karl-Anthony Towns", "Josh Hart", "Mikal Bridges", "Mitchell Robinson")),
-                Map.entry("Thunder", List.of("Shai Gilgeous-Alexander", "Chet Holmgren", "Jalen Williams", "Alex Caruso", "Isaiah Hartenstein")),
-                Map.entry("Magic", List.of("Paolo Banchero", "Wendell Carter Jr.", "Franz Wagner", "Jalen Suggs", "Jonathan Isaac")),
-                Map.entry("76ers", List.of("Joel Embiid", "Joel Embiid", "Tyrese Maxey", "Kelly Oubre Jr.", "Joel Embiid")),
-                Map.entry("Suns", List.of("Kevin Durant", "Jusuf Nurkic", "Devin Booker", "Josh Okogie", "Kevin Durant")),
-                Map.entry("Trail Blazers", List.of("Anfernee Simons", "Deandre Ayton", "Scoot Henderson", "Matisse Thybulle", "Robert Williams III")),
-                Map.entry("Kings", List.of("De'Aaron Fox", "Domantas Sabonis", "Domantas Sabonis", "Keon Ellis", "Keegan Murray")),
-                Map.entry("Spurs", List.of("Victor Wembanyama", "Victor Wembanyama", "Chris Paul", "Devin Vassell", "Victor Wembanyama")),
-                Map.entry("Raptors", List.of("Scottie Barnes", "Jakob Poeltl", "Immanuel Quickley", "Scottie Barnes", "Jakob Poeltl")),
-                Map.entry("Jazz", List.of("Lauri Markkanen", "Walker Kessler", "Keyonte George", "Collin Sexton", "Walker Kessler")),
-                Map.entry("Wizards", List.of("Jordan Poole", "Alex Sarr", "Bub Carrington", "Bilal Coulibaly", "Alex Sarr"))
-        );
-        return leaders.getOrDefault(team.getName(), List.of(
-                team.getName() + " Scorer",
-                team.getName() + " Rebounder",
-                team.getName() + " Playmaker",
-                team.getName() + " Stopper",
-                team.getName() + " Rim Protector"
-        ));
+    private int rankOrCompute(Integer rank, List<TeamSeasonStats> allStats, Function<TeamSeasonStats, Double> getter, Integer teamId) {
+        if (allStats.size() < MIN_LEAGUE_TEAM_COUNT && rank != null && rank > 0) return rank;
+        List<TeamSeasonStats> sorted = allStats.stream().filter(item -> getter.apply(item) != null).sorted(Comparator.comparing(getter).reversed()).toList();
+        for (int i = 0; i < sorted.size(); i++) if (Objects.equals(sorted.get(i).getTeamId(), teamId)) return i + 1;
+        return Math.max(1, sorted.size());
     }
 
-    private String initials(String name) {
-        return java.util.Arrays.stream(name.split("\\s+|-"))
-                .filter(part -> !part.isBlank())
-                .limit(2)
-                .map(part -> part.substring(0, 1))
-                .reduce("", String::concat)
-                .toUpperCase();
+    private String parseOpponent(String matchup) {
+        if (matchup == null) return "";
+        String[] parts = matchup.split(" ");
+        return parts.length == 0 ? matchup.toUpperCase(Locale.US) : parts[parts.length - 1].toUpperCase(Locale.US);
     }
 
-    private String identityFor(TeamMetric metric) {
-        if (metric.steals() >= 8.0 || metric.blocks() >= 5.8) {
-            return "defense-first";
-        }
-        if (metric.assists() >= 27.0) {
-            return "ball-movement";
-        }
-        return "balanced";
+    private String resultDisplay(TeamGame game) {
+        if (!game.isCompleted()) return "";
+        String prefix = "win".equals(game.getResultType()) ? "W " : "L ";
+        if (game.getTeamScore() == null || game.getOpponentScore() == null) return prefix.trim();
+        return prefix + game.getTeamScore() + " - " + game.getOpponentScore();
+    }
+
+    private String normalizePosition(String position) {
+        if (position == null || position.isBlank()) return "UTIL";
+        String first = position.split("-|/|,| ")[0].trim().toUpperCase();
+        if ("G".equals(first) || "GUARD".equals(first)) return "PG";
+        if ("F".equals(first) || "FORWARD".equals(first)) return "SF";
+        return DEPTH_POSITIONS.contains(first) ? first : "UTIL";
+    }
+
+    private boolean hasUsableDepthChart(List<TeamDepthChart> depthChart) {
+        long corePositionCount = depthChart.stream()
+                .map(TeamDepthChart::getPosition)
+                .filter(DEPTH_POSITIONS::contains)
+                .distinct()
+                .count();
+        boolean hasUtilityRows = depthChart.stream().anyMatch(item -> "UTIL".equals(item.getPosition()));
+        return corePositionCount == DEPTH_POSITIONS.size() && !hasUtilityRows;
+    }
+
+    private int depthPositionOrder(String position) {
+        int index = DEPTH_POSITIONS.indexOf(position);
+        return index < 0 ? DEPTH_POSITIONS.size() : index;
+    }
+
+    private List<Integer> availableSeasons() {
+        int current = normalizeSeason(null);
+        return java.util.stream.IntStream.rangeClosed(2016, current).boxed().sorted(Comparator.reverseOrder()).toList();
+    }
+
+    private int normalizeSeason(Integer season) {
+        if (season != null) return season;
+        LocalDate today = LocalDate.now();
+        return today.getMonthValue() >= 10 ? today.getYear() + 1 : today.getYear();
+    }
+
+    private String seasonLabel(Integer season) {
+        return (season - 1) + "-" + String.valueOf(season).substring(2);
     }
 
     private String conferenceName(String conference) {
@@ -286,12 +567,8 @@ public class TeamDashboardService {
     }
 
     private String ordinal(int value) {
-        if (value <= 0) {
-            return "Unranked";
-        }
-        if (value % 100 >= 11 && value % 100 <= 13) {
-            return value + "th";
-        }
+        if (value <= 0) return "Unranked";
+        if (value % 100 >= 11 && value % 100 <= 13) return value + "th";
         return switch (value % 10) {
             case 1 -> value + "st";
             case 2 -> value + "nd";
@@ -300,20 +577,17 @@ public class TeamDashboardService {
         };
     }
 
+    private String initials(String name) {
+        if (name == null || name.isBlank()) return "";
+        return java.util.Arrays.stream(name.split("\\s+|-")).filter(part -> !part.isBlank()).limit(2)
+                .map(part -> part.substring(0, 1)).reduce("", String::concat).toUpperCase();
+    }
+
+    private double value(Double value) {
+        return Optional.ofNullable(value).orElse(0.0);
+    }
+
     private int nullSafe(Integer value) {
         return value == null ? 0 : value;
-    }
-
-    private int currentSeason() {
-        LocalDate today = LocalDate.now();
-        return today.getMonthValue() >= 10 ? today.getYear() + 1 : today.getYear();
-    }
-
-    @FunctionalInterface
-    private interface MetricValue {
-        double get(TeamMetric metric);
-    }
-
-    private record TeamMetric(Integer teamId, double points, double rebounds, double assists, double steals, double blocks) {
     }
 }

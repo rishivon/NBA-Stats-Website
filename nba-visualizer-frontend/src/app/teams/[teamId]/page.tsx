@@ -7,10 +7,14 @@ interface TeamPageProps {
   params: Promise<{
     teamId: string;
   }>;
+  searchParams: Promise<{
+    season?: string;
+  }>;
 }
 
-const getTeamDashboard = async (teamId: string): Promise<TeamDashboard> => {
-  const response = await fetch(`${API_BASE_URL}/api/teams/${teamId}/dashboard`, {
+const getTeamDashboard = async (teamId: string, season?: string): Promise<TeamDashboard> => {
+  const query = season ? `?season=${season}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/teams/${teamId}/dashboard${query}`, {
     cache: "no-store",
   });
 
@@ -25,9 +29,10 @@ const getTeamDashboard = async (teamId: string): Promise<TeamDashboard> => {
   return response.json();
 };
 
-export default async function TeamPage({ params }: TeamPageProps) {
+export default async function TeamPage({ params, searchParams }: TeamPageProps) {
   const { teamId } = await params;
-  const dashboard = await getTeamDashboard(teamId);
+  const { season } = await searchParams;
+  const dashboard = await getTeamDashboard(teamId, season);
 
   return <TeamDashboardPage dashboard={dashboard} />;
 }

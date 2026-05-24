@@ -9,5 +9,6 @@ import java.util.Optional;
 
 public interface StandingRepository extends JpaRepository<Standing, StandingId> {
     List<Standing> findBySeason(Integer season);
+    Optional<Standing> findBySeasonAndTeamId(Integer season, Integer teamId);
     Optional<Standing> findFirstByTeamIdOrderBySeasonDesc(Integer teamId);
 }
